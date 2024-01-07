@@ -506,7 +506,6 @@ struct page *cma_alloc(struct cma *cma, size_t count, unsigned int align,
 		ret = alloc_contig_range(pfn, pfn + count, MIGRATE_CMA,
 				     GFP_KERNEL | (no_warn ? __GFP_NOWARN : 0));
 		mutex_unlock(&cma_mutex);
-
 		if (ret == 0) {
 			page = pfn_to_page(pfn);
 			break;

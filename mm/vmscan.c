@@ -1112,6 +1112,11 @@ static enum page_references page_check_references(struct page *page,
 
 	if (vm_flags & VM_LOCKED)
 		return PAGEREF_RECLAIM;
+
+	/* rmap lock contention: rotate */
+	if (referenced_ptes == -1)
+		return PAGEREF_KEEP;
+
 	if (referenced_ptes) {
 		if (PageSwapBacked(page))
 			return PAGEREF_ACTIVATE;
@@ -2321,24 +2326,9 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			}
 		}
 
-		if (page_mapcount(page) >= 20) {
-			nr_rotated += hpage_nr_pages(page);
-			#ifdef CONFIG_MAPPED_PROTECT
-			if (page_should_be_protect(page)) {
-				list_add(&page->lru, &l_active);
-				continue;
-			}
-			#endif
-			goto skip_page_referenced;
-		}
-
-		#ifdef CONFIG_KSHRINK_LRUVECD
-		setpage_reclaim_trylock(page);
-		#endif /* CONFIG_KSHRINK_LRUVECD */
-
+		/* Referenced or rmap lock contention: rotate */
 		if (page_referenced(page, 0, sc->target_mem_cgroup,
-				    &vm_flags)) {
-			nr_rotated += hpage_nr_pages(page);
+				     &vm_flags) != 0) {
 			/*
 			 * Identify referenced, file-backed active pages and
 			 * give them one more trip around the active list. So
@@ -2349,18 +2339,12 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * so we ignore them here.
 			 */
 			if ((vm_flags & VM_EXEC) && page_is_file_cache(page)) {
+				nr_rotated += hpage_nr_pages(page);
 				list_add(&page->lru, &l_active);
-				#ifdef CONFIG_KSHRINK_LRUVECD
-				clearpage_reclaim_trylock(page);
-				#endif /* CONFIG_KSHRINK_LRUVECD */
 				continue;
 			}
 		}
 
-		#ifdef CONFIG_KSHRINK_LRUVECD
-		clearpage_reclaim_trylock(page);
-		#endif /* CONFIG_KSHRINK_LRUVECD */
-skip_page_referenced:
 		ClearPageActive(page);	/* we are de-activating */
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
@@ -2813,7 +2797,7 @@ out:
 			cgroup_size = max(cgroup_size, protection);
 
 			scan = lruvec_size - lruvec_size * protection /
-				cgroup_size;
+				(cgroup_size + 1);
 
 			/*
 			 * Minimally target SWAP_CLUSTER_MAX pages to keep

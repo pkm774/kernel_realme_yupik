@@ -163,6 +163,9 @@
 /* Used to define amble type in SET_AMBLE packet to execute during preemption */
 #define CP_KMD_AMBLE_TYPE 3
 
+/* Used to define amble type in SET_AMBLE packet to execute during preemption */
+#define CP_KMD_AMBLE_TYPE 3
+
 static inline uint pm4_calc_odd_parity_bit(uint val)
 {
 	return (0x9669 >> (0xf & ((val) ^

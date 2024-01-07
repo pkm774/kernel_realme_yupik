@@ -22,7 +22,7 @@
 #define USB_SG_NUM (USB_BLK_SIZE / PAGE_SIZE)
 #define USB_BUF_NUM 255
 #define USB_TIME_OUT (5 * HZ)
-#define PCIE_BLK_SIZE 32768
+#define PCIE_BLK_SIZE 4096
 
 static struct tmc_drvdata *tmcdrvdata;
 
@@ -182,7 +182,7 @@ EXPORT_SYMBOL(tmc_etr_byte_cntr_stop);
 
 static void etr_pcie_close_channel(struct byte_cntr *byte_cntr_data)
 {
-	if (!byte_cntr_data)
+	if (!byte_cntr_data || !byte_cntr_data->pcie_chan_opened)
 		return;
 
 	mutex_lock(&byte_cntr_data->byte_cntr_lock);
@@ -766,7 +766,7 @@ static void etr_pcie_write_work_fn(struct work_struct *work)
 		if (!req)
 			break;
 
-		tmc_etr_read_bytes(byte_cntr_data, (loff_t *)&byte_cntr_data->offset,
+		tmc_etr_read_bytes(byte_cntr_data, &byte_cntr_data->offset,
 					PCIE_BLK_SIZE, &actual, &buf);
 
 		if (actual <= 0) {
@@ -785,7 +785,7 @@ static void etr_pcie_write_work_fn(struct work_struct *work)
 		req->snd_cmpl = 1;
 
 		bytes_to_write = mhi_dev_write_channel(req);
-		if (bytes_to_write != PCIE_BLK_SIZE) {
+		if (bytes_to_write != actual) {
 			dev_err(&tmcdrvdata->csdev->dev, "Write error %d\n",
 							bytes_to_write);
 
@@ -795,7 +795,7 @@ static void etr_pcie_write_work_fn(struct work_struct *work)
 		}
 
 		mutex_lock(&byte_cntr_data->byte_cntr_lock);
-		if (byte_cntr_data->offset + actual >= tmcdrvdata->size)
+		if (byte_cntr_data->offset + actual >= tmcdrvdata->sysfs_buf->size)
 			byte_cntr_data->offset = 0;
 		else
 			byte_cntr_data->offset += actual;

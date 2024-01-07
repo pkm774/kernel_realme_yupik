@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/sysfs.h>
@@ -188,6 +188,7 @@ static int _bcl_store(struct adreno_device *adreno_dev, bool val)
 	return adreno_power_cycle_bool(adreno_dev, &adreno_dev->bcl_enabled,
 					val);
 }
+
 static bool _perfcounter_show(struct adreno_device *adreno_dev)
 {
 	return adreno_dev->perfcounter;

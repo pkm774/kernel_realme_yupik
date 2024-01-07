@@ -2326,6 +2326,10 @@ static void dwc3_restart_usb_work(struct work_struct *w)
 
 	dwc->err_evt_seen = false;
 	flush_delayed_work(&mdwc->sm_work);
+
+	/* see comments in dwc3_msm_suspend */
+	if (!mdwc->vbus_active)
+		pm_relax(mdwc->dev);
 }
 
 /*
@@ -3377,6 +3381,12 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool force_power_collapse,
 
 	dwc3_msm_update_bus_bw(mdwc, BUS_VOTE_NONE);
 
+	/*
+	 * If in_restart is marked as true from restart work do not release the wakeup
+	 * active source as it can lead the device to enter system suspend (if usb is
+	 * the last holding the wakeup active source). If actual cable disconnect happens
+	 * while in_restart is true wakeup active source will be released from restart work.
+	 */
 	if (!mdwc->in_restart) {
 		/*
 		 * release wakeup source with timeout to defer system suspend to
@@ -3744,10 +3754,8 @@ skip_update:
 		dwc->maximum_speed, dwc->max_hw_supp_speed,
 		mdwc->override_usb_speed);
 	if (mdwc->override_usb_speed &&
-			mdwc->override_usb_speed <= dwc->maximum_speed) {
+			mdwc->override_usb_speed <= dwc->maximum_speed)
 		dwc->maximum_speed = mdwc->override_usb_speed;
-		dwc->gadget.max_speed = dwc->maximum_speed;
-	}
 
 	dbg_event(0xFF, "speed", dwc->maximum_speed);
 
@@ -3873,7 +3881,7 @@ static irqreturn_t msm_dwc3_pwr_irq(int irq, void *data)
 	if (mdwc->drd_state == DRD_STATE_PERIPHERAL_SUSPEND) {
 		dev_info(mdwc->dev, "USB Resume start\n");
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-		place_marker("M - USB device resume started");
+		update_marker("M - USB device resume started");
 #endif
 	}
 
@@ -5975,7 +5983,7 @@ static int dwc3_msm_pm_resume(struct device *dev)
 			mdwc->drd_state == DRD_STATE_PERIPHERAL_SUSPEND) {
 		dev_info(mdwc->dev, "USB Resume start\n");
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
-		place_marker("M - USB device resume started");
+		update_marker("M - USB device resume started");
 #endif
 	}
 
