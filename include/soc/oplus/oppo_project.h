@@ -1,1 +1,1 @@
-../../../../../vendor/oplus/kernel/system/oppo_project.h
+../../../include/soc/oppo/oppo_project.h
