@@ -62,6 +62,15 @@ struct rw_semaphore {
 #include <linux/sched_assist/sched_assist_rwsem.h>
 #endif /* OPLUS_FEATURE_SCHED_ASSIST */
 
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+//#ifdef CONFIG_UXCHAIN_V2
+extern void uxchain_rwsem_wake(struct task_struct *tsk,
+	struct rw_semaphore *sem);
+extern void uxchain_rwsem_down(struct rw_semaphore *sem);
+extern void uxchain_rwsem_up(struct rw_semaphore *sem);
+#define PREEMPT_DISABLE_RWSEM 3000000
+#endif
+
 /*
  * Setting all bits of the owner field except bit 0 will indicate
  * that the rwsem is writer-owned with an unknown owner.

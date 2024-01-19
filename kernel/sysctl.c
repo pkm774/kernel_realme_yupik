@@ -144,6 +144,11 @@ extern int sysctl_nr_trim_pages;
 static int sixty = 60;
 #endif
 
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+//#ifdef CONFIG_UXCHAIN_V2
+int sysctl_uxchain_v2 = 1;
+#endif
+
 static int __maybe_unused neg_one = -1;
 static int __maybe_unused one = 1;
 static int __maybe_unused two = 2;
@@ -1785,6 +1790,16 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
+	},
+#endif
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+//#ifdef CONFIG_UXCHAIN_V2
+	{
+		.procname	= "uxchain_v2",
+		.data		= &sysctl_uxchain_v2,
+		.maxlen = sizeof(int),
+		.mode		= 0666,
+		.proc_handler = proc_dointvec,
 	},
 #endif
 	{ }

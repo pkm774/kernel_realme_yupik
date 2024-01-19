@@ -215,6 +215,11 @@ extern cpumask_t asym_cap_sibling_cpus;
 #define TASK_ON_RQ_QUEUED	1
 #define TASK_ON_RQ_MIGRATING	2
 
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+//#ifdef CONFIG_UXCHAIN_V2
+extern int sysctl_uxchain_v2;
+#endif
+
 extern __read_mostly int scheduler_running;
 
 extern unsigned long calc_load_update;
