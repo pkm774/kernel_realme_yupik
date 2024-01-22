@@ -85,6 +85,10 @@ obj-$(CONFIG_OPLUS_FEATURE_CPUFREQ_BOUNCING) += oplus/cpufreq_bouncing/
 obj-$(CONFIG_OPLUS_FEATURE_TPD) += oplus/tpd/
 #endif
 
+#ifdef OPLUS_FEATURE_EXPLORER
+obj-$(CONFIG_EXPLORER_IPC) += oplus/explorer/
+#endif /* OPLUS_FEATURE_EXPLORER */
+
 #Add for NandSwap
 obj-$(CONFIG_NANDSWAP)		+= oplus/oplus_nandswap/
 
