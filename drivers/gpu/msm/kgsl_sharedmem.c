@@ -375,7 +375,7 @@ void kgsl_process_init_sysfs(struct kgsl_device *device,
 
 }
 #ifdef OPLUS_FEATURE_HEALTHINFO
-void gpu_usage_show()
+void gpu_usage_show(void)
 {
 	struct kgsl_process_private *p;
 	int type = KGSL_MEM_ENTRY_KERNEL;
