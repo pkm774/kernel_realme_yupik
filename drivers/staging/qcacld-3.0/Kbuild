@@ -6,9 +6,6 @@ else
 	KERNEL_BUILD := n
 endif
 
-# Force user build
-TARGET_BUILD_VARIANT := user
-
 ifeq ($(KERNEL_BUILD), y)
 	# These are provided in external module based builds
 	# Need to explicitly define for Kernel-based builds
@@ -18,6 +15,9 @@ ifeq ($(KERNEL_BUILD), y)
 	WLAN_COMMON_INC := $(WLAN_ROOT)/$(WLAN_COMMON_ROOT)
 	WLAN_FW_API := $(WLAN_ROOT)/../fw-api/
 	WLAN_PROFILE := default
+	# Disable debugging by forcing BUILD_VARIANT user if
+	# we are building this outside of Android
+	TARGET_BUILD_VARIANT := user
 endif
 
 WLAN_COMMON_ROOT ?= ../qca-wifi-host-cmn
@@ -3859,7 +3859,8 @@ ccflags-y += -DSCHEDULER_CORE_MAX_MESSAGES=1000
 #then WLAN_SCHED_REDUCTION_LIMIT will be 32 for
 # WIN.
 ccflags-y += -DWLAN_SCHED_REDUCTION_LIMIT=0
-
+ccflags-y += $(call cc-option, -g0)
+ccflags-y += $(call cc-option, -O3)
 # Determine if we are building against an arm architecture host
 ifeq ($(findstring arm, $(ARCH)),)
 	ccflags-y += -DWLAN_HOST_ARCH_ARM=0
