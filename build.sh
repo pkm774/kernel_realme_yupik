@@ -50,7 +50,7 @@ make_kernel() {
 make_kernel ${DEFCONFIG}
 make_kernel -j12
 
-# Function to copy files
+# Function to copy kernel modules
 copy_files() {
     rm -rf out/gen_modules
     mkdir out/gen_modules
@@ -163,10 +163,24 @@ copy_files() {
     rm -rf out/gen_modules/wlan.ko
 }
 
+# Function to create dtb.img
+create_dtb_img() {
+    DIST_DIR=out/gen_dtb
+    rm -rf ${DIST_DIR}
+    mkdir -p ${DIST_DIR}
+    cp out/arch/arm64/boot/dts/vendor/oplus/lunaa/*.dtb ${DIST_DIR}
+    cp out/arch/arm64/boot/dts/vendor/qcom/*.dtb ${DIST_DIR}
+    DTB_FILE_LIST=$(find ${DIST_DIR} -name "*.dtb" | sort)
+    cat $DTB_FILE_LIST > out/arch/arm64/boot/dtb.img
+}
+
 # Check if 'arch/arm64/boot/Image' exists
 if [ -f "out/arch/arm64/boot/Image" ]; then
-    echo "Kernel build successful! Proceeding with copying modules."
+    echo "Kernel build successful! "
+    echo "Proceeding with copying modules."
     copy_files
+    echo "Proceeding with generating dtb.img"
+    create_dtb_img
     echo ''
     echo 'Done!'
     echo ''
