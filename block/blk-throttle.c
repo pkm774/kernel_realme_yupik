@@ -2413,9 +2413,8 @@ int blk_throtl_init(struct request_queue *q)
 
 void blk_throtl_exit(struct request_queue *q)
 {
-	struct throtl_data *td = (struct throtl_data *)(q->write_hints[BLK_RQ_REV_THROTL]);
-	BUG_ON(!td);
-	del_timer_sync(&td->service_queue.pending_timer);
+	BUG_ON(!q->td);
+	del_timer_sync(&q->td->service_queue.pending_timer);
 	throtl_shutdown_wq(q);
 	blkcg_deactivate_policy(q, &blkcg_policy_throtl);
 	free_percpu(td->latency_buckets[READ]);

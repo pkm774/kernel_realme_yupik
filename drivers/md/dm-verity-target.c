@@ -286,6 +286,7 @@ out:
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_FEEDBACK)
 		panic("dm-verity device corrupted");
 #else
+		if (v->mode == DM_VERITY_MODE_RESTART)
 		kernel_restart("dm-verity device corrupted");
 #endif /* CONFIG_OPLUS_FEATURE_FEEDBACK */
 	}
@@ -514,7 +515,7 @@ static int verity_verify_io(struct dm_verity_io *io)
 		sector_t cur_block = io->block + b;
 		struct ahash_request *req = verity_io_hash_req(v, io);
 
-		if (v->validated_blocks &&
+		if (v->validated_blocks && bio->bi_status == BLK_STS_OK &&
 		    likely(test_bit(cur_block, v->validated_blocks))) {
 			verity_bv_skip_block(v, io, &io->iter);
 			continue;

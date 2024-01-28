@@ -189,7 +189,7 @@ void f2fs_register_inmem_page(struct inode *inode, struct page *page)
 
 	f2fs_trace_pid(page);
 
-	set_page_private_atomic(page);
+	f2fs_set_page_private(page, (unsigned long)ATOMIC_WRITTEN_PAGE);
 
 	new = f2fs_kmem_cache_alloc(inmem_entry_slab, GFP_NOFS);
 
@@ -254,7 +254,7 @@ retry:
 				goto next;
 			}
 
-			err = f2fs_get_node_info(sbi, dn.nid, &ni, false);
+			err = f2fs_get_node_info(sbi, dn.nid, &ni);
 			if (err) {
 				f2fs_put_dnode(&dn);
 				return err;
@@ -272,10 +272,9 @@ next:
 		/* we don't need to invalidate this in the sccessful status */
 		if (drop || recover) {
 			ClearPageUptodate(page);
-			clear_page_private_gcing(page);
+			clear_cold_data(page);
 		}
-		detach_page_private(page);
-		set_page_private(page, 0);
+		f2fs_clear_page_private(page);
 		f2fs_put_page(page, 1);
 
 		list_del(&cur->list);
@@ -355,7 +354,7 @@ void f2fs_drop_inmem_page(struct inode *inode, struct page *page)
 	struct inmem_pages *cur = NULL;
 	struct inmem_pages *tmp;
 
-	f2fs_bug_on(sbi, !page_private_atomic(page));
+	f2fs_bug_on(sbi, !IS_ATOMIC_WRITTEN_PAGE(page));
 
 	mutex_lock(&fi->inmem_lock);
 	list_for_each_entry(tmp, head, list) {
@@ -373,11 +372,8 @@ void f2fs_drop_inmem_page(struct inode *inode, struct page *page)
 	kmem_cache_free(inmem_entry_slab, cur);
 
 	ClearPageUptodate(page);
-	clear_page_private_atomic(page);
+	f2fs_clear_page_private(page);
 	f2fs_put_page(page, 0);
-
-	detach_page_private(page);
-	set_page_private(page, 0);
 
 	trace_f2fs_commit_inmem_page(page, INMEM_INVALIDATE);
 }
@@ -2243,7 +2239,6 @@ void f2fs_invalidate_blocks(struct f2fs_sb_info *sbi, block_t addr)
 		return;
 
 	invalidate_mapping_pages(META_MAPPING(sbi), addr, addr);
-	f2fs_invalidate_compress_page(sbi, addr);
 
 	/* add it into sit main buffer */
 	down_write(&sit_i->sentry_lock);
@@ -2689,7 +2684,7 @@ static void allocate_segment_by_default(struct f2fs_sb_info *sbi,
 	stat_inc_seg_type(sbi, curseg);
 }
 
-void f2fs_allocate_segment_for_resize(struct f2fs_sb_info *sbi, int type,
+void allocate_segment_for_resize(struct f2fs_sb_info *sbi, int type,
 					unsigned int start, unsigned int end)
 {
 	struct curseg_info *curseg = CURSEG_I(sbi, type);
@@ -3056,8 +3051,9 @@ static int __get_segment_type_6(struct f2fs_io_info *fio)
 {
 	if (fio->type == DATA) {
 		struct inode *inode = fio->page->mapping->host;
-		if (page_private_gcing(fio->page) || file_is_cold(inode) ||
-				f2fs_need_compress_data(inode))
+
+		if (is_cold_data(fio->page) || file_is_cold(inode) ||
+				f2fs_compressed_file(inode))
 			return CURSEG_COLD_DATA;
 		if (file_is_hot(inode) ||
 				is_inode_flag_set(inode, FI_HOT_DATA) ||
@@ -3120,6 +3116,14 @@ void f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 	} else if (type == CURSEG_COLD_DATA_PINNED) {
 		type = CURSEG_COLD_DATA;
 	}
+
+	/*
+	 * We need to wait for node_write to avoid block allocation during
+	 * checkpoint. This can only happen to quota writes which can cause
+	 * the below discard race condition.
+	 */
+	if (IS_DATASEG(type))
+		down_write(&sbi->node_write);
 
 	down_read(&SM_I(sbi)->curseg_lock);
 
@@ -3186,6 +3190,9 @@ void f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 
 	up_read(&SM_I(sbi)->curseg_lock);
 
+	if (IS_DATASEG(type))
+		up_write(&sbi->node_write);
+
 	if (put_pin_sem)
 		up_read(&sbi->pin_sem);
 }
@@ -3221,11 +3228,10 @@ static void do_write_page(struct f2fs_summary *sum, struct f2fs_io_info *fio)
 reallocate:
 	f2fs_allocate_data_block(fio->sbi, fio->page, fio->old_blkaddr,
 			&fio->new_blkaddr, sum, type, fio, true);
-	if (GET_SEGNO(fio->sbi, fio->old_blkaddr) != NULL_SEGNO) {
+	if (GET_SEGNO(fio->sbi, fio->old_blkaddr) != NULL_SEGNO)
 		invalidate_mapping_pages(META_MAPPING(fio->sbi),
 					fio->old_blkaddr, fio->old_blkaddr);
-		f2fs_invalidate_compress_page(fio->sbi, fio->old_blkaddr);
-	}
+
 	/* writeout dirty page into bdev */
 	f2fs_submit_page_write(fio);
 	if (fio->retry) {
@@ -3247,11 +3253,7 @@ void f2fs_do_write_meta_page(struct f2fs_sb_info *sbi, struct page *page,
 		.type = META,
 		.temp = HOT,
 		.op = REQ_OP_WRITE,
-#if defined(OPLUS_FEATURE_UFSPLUS) && defined(CONFIG_FS_HPB)
-		.op_flags = REQ_SYNC | REQ_META | REQ_PRIO | REQ_HPB_PREFER,
-#else
 		.op_flags = REQ_SYNC | REQ_META | REQ_PRIO,
-#endif
 		.old_blkaddr = page->index,
 		.new_blkaddr = page->index,
 		.page = page,
@@ -3312,10 +3314,6 @@ int f2fs_inplace_write_data(struct f2fs_io_info *fio)
 			  __func__, segno);
 		return -EFSCORRUPTED;
 	}
-
-	if (fio->post_read)
-		invalidate_mapping_pages(META_MAPPING(sbi),
-					fio->new_blkaddr, fio->new_blkaddr);
 
 	stat_inc_inplace_blocks(fio->sbi);
 
@@ -3401,7 +3399,6 @@ void f2fs_do_replace_block(struct f2fs_sb_info *sbi, struct f2fs_summary *sum,
 	if (GET_SEGNO(sbi, old_blkaddr) != NULL_SEGNO) {
 		invalidate_mapping_pages(META_MAPPING(sbi),
 					old_blkaddr, old_blkaddr);
-		f2fs_invalidate_compress_page(sbi, old_blkaddr);
 		update_sit_entry(sbi, old_blkaddr, -1);
 	}
 
@@ -3478,16 +3475,10 @@ void f2fs_wait_on_block_writeback(struct inode *inode, block_t blkaddr)
 void f2fs_wait_on_block_writeback_range(struct inode *inode, block_t blkaddr,
 								block_t len)
 {
-	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	block_t i;
-
-	if (!f2fs_post_read_required(inode))
-		return;
 
 	for (i = 0; i < len; i++)
 		f2fs_wait_on_block_writeback(inode, blkaddr + i);
-
-	invalidate_mapping_pages(META_MAPPING(sbi), blkaddr, blkaddr + len - 1);
 }
 
 static int read_compacted_summaries(struct f2fs_sb_info *sbi)
@@ -4890,16 +4881,8 @@ int __init f2fs_create_segment_manager_caches(void)
 			sizeof(struct inmem_pages));
 	if (!inmem_entry_slab)
 		goto destroy_sit_entry_set;
-#ifdef CONFIG_F2FS_FS_DEDUP
-	if (create_page_info_slab())
-		goto destroy_inmem_page_entry;
-#endif
 	return 0;
 
-#ifdef CONFIG_F2FS_FS_DEDUP
-destroy_inmem_page_entry:
-	kmem_cache_destroy(inmem_entry_slab);
-#endif
 destroy_sit_entry_set:
 	kmem_cache_destroy(sit_entry_set_slab);
 destroy_discard_cmd:
@@ -4916,7 +4899,4 @@ void f2fs_destroy_segment_manager_caches(void)
 	kmem_cache_destroy(discard_cmd_slab);
 	kmem_cache_destroy(discard_entry_slab);
 	kmem_cache_destroy(inmem_entry_slab);
-#ifdef CONFIG_F2FS_FS_DEDUP
-	destroy_page_info_slab();
-#endif
 }

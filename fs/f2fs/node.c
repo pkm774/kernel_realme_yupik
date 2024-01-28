@@ -98,20 +98,6 @@ bool f2fs_available_free_memory(struct f2fs_sb_info *sbi, int type)
 		mem_size = (atomic_read(&dcc->discard_cmd_cnt) *
 				sizeof(struct discard_cmd)) >> PAGE_SHIFT;
 		res = mem_size < (avail_ram * nm_i->ram_thresh / 100);
-	} else if (type == COMPRESS_PAGE) {
-#ifdef CONFIG_F2FS_FS_COMPRESSION
-		unsigned long free_ram = val.freeram;
-
-		/*
-		 * free memory is lower than watermark or cached page count
-		 * exceed threshold, deny caching compress page.
-		 */
-		res = (free_ram > avail_ram * sbi->compress_watermark / 100) &&
-			(COMPRESS_MAPPING(sbi)->nrpages <
-			 free_ram * sbi->compress_percent / 100);
-#else
-		res = false;
-#endif
 	} else {
 		if (!sbi->sb->s_bdi->wb.dirty_exceeded)
 			return true;
@@ -537,7 +523,7 @@ int f2fs_try_to_free_nats(struct f2fs_sb_info *sbi, int nr_shrink)
 }
 
 int f2fs_get_node_info(struct f2fs_sb_info *sbi, nid_t nid,
-						struct node_info *ni, bool checkpoint_context)
+						struct node_info *ni)
 {
 	struct f2fs_nm_info *nm_i = NM_I(sbi);
 	struct curseg_info *curseg = CURSEG_I(sbi, CURSEG_HOT_DATA);
@@ -570,10 +556,9 @@ retry:
 	 * nat_tree_lock. Therefore, we should retry, if we failed to grab here
 	 * while not bothering checkpoint.
 	 */
-	if (!rwsem_is_locked(&sbi->cp_global_sem) || checkpoint_context) {
+	if (!rwsem_is_locked(&sbi->cp_global_sem)) {
 		down_read(&curseg->journal_rwsem);
-	} else if (rwsem_is_contended(&nm_i->nat_tree_lock) ||
-				!down_read_trylock(&curseg->journal_rwsem)) {
+	} else if (!down_read_trylock(&curseg->journal_rwsem)) {
 		up_read(&nm_i->nat_tree_lock);
 		goto retry;
 	}
@@ -866,7 +851,7 @@ static int truncate_node(struct dnode_of_data *dn)
 	int err;
 	pgoff_t index;
 
-	err = f2fs_get_node_info(sbi, dn->nid, &ni, false);
+	err = f2fs_get_node_info(sbi, dn->nid, &ni);
 	if (err)
 		return err;
 
@@ -916,8 +901,10 @@ static int truncate_dnode(struct dnode_of_data *dn)
 	dn->ofs_in_node = 0;
 	f2fs_truncate_data_blocks(dn);
 	err = truncate_node(dn);
-	if (err)
+	if (err) {
+		f2fs_put_page(page, 1);
 		return err;
+	}
 
 	return 1;
 }
@@ -1263,7 +1250,7 @@ struct page *f2fs_new_node_page(struct dnode_of_data *dn, unsigned int ofs)
 		goto fail;
 
 #ifdef CONFIG_F2FS_CHECK_FS
-	err = f2fs_get_node_info(sbi, dn->nid, &new_ni, false);
+	err = f2fs_get_node_info(sbi, dn->nid, &new_ni);
 	if (err) {
 		dec_valid_node_count(sbi, dn->inode, !ofs);
 		goto fail;
@@ -1329,7 +1316,7 @@ static int read_node_page(struct page *page, int op_flags)
 		return LOCKED_PAGE;
 	}
 
-	err = f2fs_get_node_info(sbi, page->index, &ni, false);
+	err = f2fs_get_node_info(sbi, page->index, &ni);
 	if (err)
 		return err;
 
@@ -1583,7 +1570,7 @@ static int __write_node_page(struct page *page, bool atomic, bool *submitted,
 	nid = nid_of_node(page);
 	f2fs_bug_on(sbi, page->index != nid);
 
-	if (f2fs_get_node_info(sbi, nid, &ni, !do_balance))
+	if (f2fs_get_node_info(sbi, nid, &ni))
 		goto redirty_out;
 
 	if (wbc->for_reclaim) {
@@ -1888,8 +1875,8 @@ continue_unlock:
 			}
 
 			/* flush inline_data, if it's async context. */
-			if (page_private_inline(page)) {
-				clear_page_private_inline(page);
+			if (is_inline_node(page)) {
+				clear_inline_node(page);
 				unlock_page(page);
 				flush_inline_data(sbi, ino_of_node(page));
 				continue;
@@ -1970,8 +1957,8 @@ continue_unlock:
 				goto write_node;
 
 			/* flush inline_data */
-			if (page_private_inline(page)) {
-				clear_page_private_inline(page);
+			if (is_inline_node(page)) {
+				clear_inline_node(page);
 				unlock_page(page);
 				flush_inline_data(sbi, ino_of_node(page));
 				goto lock_node;
@@ -2129,7 +2116,7 @@ static int f2fs_set_node_page_dirty(struct page *page)
 	if (!PageDirty(page)) {
 		__set_page_dirty_nobuffers(page);
 		inc_page_count(F2FS_P_SB(page), F2FS_DIRTY_NODES);
-		set_page_private_reference(page);
+		f2fs_set_page_private(page, 0);
 		f2fs_trace_pid(page);
 		return 1;
 	}
@@ -2669,7 +2656,7 @@ int f2fs_recover_xattr_data(struct inode *inode, struct page *page)
 		goto recover_xnid;
 
 	/* 1: invalidate the previous xattr nid */
-	err = f2fs_get_node_info(sbi, prev_xnid, &ni, false);
+	err = f2fs_get_node_info(sbi, prev_xnid, &ni);
 	if (err)
 		return err;
 
@@ -2709,7 +2696,7 @@ int f2fs_recover_inode_page(struct f2fs_sb_info *sbi, struct page *page)
 	struct page *ipage;
 	int err;
 
-	err = f2fs_get_node_info(sbi, ino, &old_ni, false);
+	err = f2fs_get_node_info(sbi, ino, &old_ni);
 	if (err)
 		return err;
 

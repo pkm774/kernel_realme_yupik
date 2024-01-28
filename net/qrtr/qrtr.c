@@ -202,7 +202,7 @@ struct qrtr_node {
 	struct wakeup_source *ws;
 	void *ilc;
 
-	struct qrtr_array no_wake_svc;
+	u32 nonwake_svc[MAX_NON_WAKE_SVC_LEN];
 };
 
 struct qrtr_tx_flow_waiter {
@@ -298,7 +298,7 @@ static void qrtr_log_tx_msg(struct qrtr_node *node, struct qrtr_hdr_v1 *hdr,
 				  type, hdr->src_node_id);
 			if (le32_to_cpu(hdr->dst_node_id) == 0 ||
 			    le32_to_cpu(hdr->dst_node_id) == 3) {
-				place_marker("M - Modem QMI Readiness TX");
+				update_marker("M - Modem QMI Readiness TX");
 				pr_err("qrtr: Modem QMI Readiness TX cmd:0x%x node[0x%x]\n",
 				       type, hdr->src_node_id);
 			}
@@ -389,7 +389,7 @@ static void qrtr_log_rx_msg(struct qrtr_node *node, struct sk_buff *skb)
 				  "RX CTRL: cmd:0x%x node[0x%x]\n",
 				  cb->type, cb->src_node);
 			if (cb->src_node == 0 || cb->src_node == 3) {
-				place_marker("M - Modem QMI Readiness RX");
+				update_marker("M - Modem QMI Readiness RX");
 				pr_err("qrtr: Modem QMI Readiness RX cmd:0x%x node[0x%x]\n",
 				       cb->type, cb->src_node);
 			}
@@ -470,7 +470,6 @@ static void __qrtr_node_release(struct kref *kref)
 	kthread_stop(node->task);
 
 	skb_queue_purge(&node->rx_queue);
-	kfree(node->no_wake_svc.arr);
 	kfree(node);
 }
 
@@ -999,8 +998,8 @@ int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)
 		if (node->nid == 5) {
 			svc_id = qrtr_get_service_id(cb->src_node, cb->src_port);
 			if (svc_id > 0) {
-				for (i = 0; i < node->no_wake_svc.size; i++) {
-					if (svc_id == node->no_wake_svc.arr[i]) {
+				for (i = 0; i < MAX_NON_WAKE_SVC_LEN; i++) {
+					if (svc_id == node->nonwake_svc[i]) {
 						wake = false;
 						break;
 					}
@@ -1227,7 +1226,7 @@ static void qrtr_hello_work(struct kthread_work *work)
  * The specified endpoint must have the xmit function pointer set on call.
  */
 int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int net_id,
-			   bool rt, struct qrtr_array *svc_arr)
+			   bool rt, u32 *svc_arr)
 {
 	struct qrtr_node *node;
 	struct sched_param param = {.sched_priority = 1};
@@ -1258,12 +1257,8 @@ int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int net_id,
 	if (rt)
 		sched_setscheduler(node->task, SCHED_FIFO, &param);
 
-	if (svc_arr && svc_arr->size) {
-		node->no_wake_svc.arr = kmalloc_array(svc_arr->size, sizeof(u32), GFP_KERNEL);
-		memcpy((void *)node->no_wake_svc.arr, (void *)svc_arr->arr,
-		       svc_arr->size * sizeof(u32));
-		node->no_wake_svc.size = svc_arr->size;
-	}
+	if (svc_arr)
+		memcpy(node->nonwake_svc, svc_arr, MAX_NON_WAKE_SVC_LEN * sizeof(int));
 
 	mutex_init(&node->qrtr_tx_lock);
 	INIT_RADIX_TREE(&node->qrtr_tx_flow, GFP_KERNEL);

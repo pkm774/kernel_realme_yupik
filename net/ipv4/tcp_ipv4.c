@@ -1584,6 +1584,9 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		struct dst_entry *dst;
 
 		dst = rcu_dereference_protected(sk->sk_rx_dst,
+						lockdep_sock_is_held(sk));
+
+		dst = rcu_dereference_protected(sk->sk_rx_dst,
 								lockdep_sock_is_held(sk));
 		sock_rps_save_rxhash(sk, skb);
 		sk_mark_napi_id(sk, skb);

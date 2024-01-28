@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/atomic.h>
@@ -1004,6 +1004,11 @@ static int haptics_get_status_data(struct haptics_chip *chip,
 	mod_sel_val[1] = (sel >> 8) & 0xff;
 	rc = haptics_write(chip, chip->cfg_addr_base,
 			HAP_CFG_MOD_STATUS_XT_V2_REG, &mod_sel_val[1], 1);
+	if (rc < 0)
+		return rc;
+
+	rc = haptics_write(chip, chip->cfg_addr_base,
+			HAP_CFG_MOD_STATUS_SEL_REG, mod_sel_val, 1);
 	if (rc < 0)
 		return rc;
 
@@ -2280,11 +2285,13 @@ static int haptics_load_predefined_effect(struct haptics_chip *chip,
 			return rc;
 	}
 
+
 #ifndef OPLUS_FEATURE_CHG_BASIC
 	rc = haptics_enable_autores(chip, !play->effect->auto_res_disable);
 #else
-	rc = haptics_enable_autores(chip, false);
+	rc = haptics_enable_autores(chip, !play->effect->auto_res_disable);
 #endif
+
 	if (rc < 0)
 		return rc;
 
@@ -2597,7 +2604,10 @@ static int haptics_stop_fifo_play(struct haptics_chip *chip)
 	u8 val;
 
 	if (atomic_read(&chip->play.fifo_status.is_busy) == 0) {
+
 #ifndef OPLUS_FEATURE_CHG_BASIC
+		dev_dbg(chip->dev, "FIFO playing is not in progress\n");
+#else
 		dev_dbg(chip->dev, "FIFO playing is not in progress\n");
 #endif
 		return 0;
@@ -2630,6 +2640,8 @@ static int haptics_stop_fifo_play(struct haptics_chip *chip)
 		return rc;
 
 #ifndef OPLUS_FEATURE_CHG_BASIC
+	dev_dbg(chip->dev, "stopped FIFO playing successfully\n");
+#else
 	dev_dbg(chip->dev, "stopped FIFO playing successfully\n");
 #endif
 	return 0;
@@ -3338,6 +3350,11 @@ static ssize_t pattern_s_dbgfs_write(struct file *fp,
 			goto exit;
 		}
 
+		if (i >= ARRAY_SIZE(tmp)) {
+			pr_err("too many patterns in input string\n");
+			rc = -EINVAL;
+			goto exit;
+		}
 		tmp[i++] = val;
 	}
 
@@ -5830,7 +5847,11 @@ static enum hrtimer_restart haptics_disable_hbst_timer(struct hrtimer *timer)
 	rc = haptics_boost_vreg_enable(chip, false);
 	if (rc < 0)
 		dev_err(chip->dev, "disable boost vreg failed, rc=%d\n", rc);
+
 #ifndef OPLUS_FEATURE_CHG_BASIC
+	else
+		dev_dbg(chip->dev, "boost vreg is disabled\n");
+#else
 	else
 		dev_dbg(chip->dev, "boost vreg is disabled\n");
 #endif

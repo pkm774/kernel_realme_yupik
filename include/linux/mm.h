@@ -44,6 +44,8 @@ struct swap_info_struct;
 #define may_cont_pte android_kabi_reserved1 /* struct inode */
 #endif
 
+extern int sysctl_page_lock_unfairness;
+
 void init_mm_internals(void);
 
 #ifndef CONFIG_NEED_MULTIPLE_NODES	/* Don't use mapnrs, do it properly */
@@ -1604,6 +1606,12 @@ int generic_access_phys(struct vm_area_struct *vma, unsigned long addr,
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 static inline void vm_write_begin(struct vm_area_struct *vma)
 {
+        /*
+         * Isolated vma might be freed without exclusive mmap_lock but
+         * speculative page fault handler still needs to know it was changed.
+         */
+        if (!RB_EMPTY_NODE(&vma->vm_rb))
+		WARN_ON_ONCE(!rwsem_is_locked(&(vma->vm_mm)->mmap_sem));
 	/*
 	 * The reads never spins and preemption
 	 * disablement is not required.

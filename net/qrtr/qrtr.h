@@ -41,7 +41,7 @@ struct qrtr_array {
 };
 
 int qrtr_endpoint_register(struct qrtr_endpoint *ep, unsigned int net_id,
-			   bool rt, struct qrtr_array *svc_arr);
+			   bool rt, u32 *svc_arr);
 
 void qrtr_endpoint_unregister(struct qrtr_endpoint *ep);
 

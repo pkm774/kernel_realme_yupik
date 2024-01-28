@@ -4633,16 +4633,25 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 	device->pwrctrl.interrupt_num = status;
 	disable_irq(device->pwrctrl.interrupt_num);
 
-	rwlock_init(&device->context_lock);
-	spin_lock_init(&device->submit_lock);
+	device->events_wq = alloc_workqueue("kgsl-events",
+		WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI, 0);
 
-	idr_init(&device->timelines);
-	spin_lock_init(&device->timelines_lock);
+	if (!device->events_wq) {
+		dev_err(device->dev, "Failed to allocate events workqueue\n");
+		status = -ENOMEM;
+		goto error_pwrctrl_close;
+	}
 
 	/* This can return -EPROBE_DEFER */
 	status = kgsl_mmu_probe(device);
 	if (status != 0)
 		goto error_pwrctrl_close;
+
+	rwlock_init(&device->context_lock);
+	spin_lock_init(&device->submit_lock);
+
+	idr_init(&device->timelines);
+	spin_lock_init(&device->timelines_lock);
 
 	kgsl_device_debugfs_init(device);
 

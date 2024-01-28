@@ -309,8 +309,15 @@ static int __f2fs_write_meta_page(struct page *page,
 
 	trace_f2fs_writepage(page, META);
 
-	if (unlikely(f2fs_cp_error(sbi)))
+	if (unlikely(f2fs_cp_error(sbi))) {
+		if (is_sbi_flag_set(sbi, SBI_IS_CLOSE)) {
+			ClearPageUptodate(page);
+			dec_page_count(sbi, F2FS_DIRTY_META);
+			unlock_page(page);
+			return 0;
+		}
 		goto redirty_out;
+	}
 	if (unlikely(is_sbi_flag_set(sbi, SBI_POR_DOING)))
 		goto redirty_out;
 	if (wbc->for_reclaim && page->index < GET_SUM_BLOCK(sbi, 0))
@@ -351,8 +358,8 @@ static int f2fs_write_meta_pages(struct address_space *mapping,
 
 	/* collect a number of dirty meta pages and write together */
 	if (wbc->sync_mode != WB_SYNC_ALL &&
-                        get_pages(sbi, F2FS_DIRTY_META) <
-                                        nr_pages_to_skip(sbi, META))
+			get_pages(sbi, F2FS_DIRTY_META) <
+					nr_pages_to_skip(sbi, META))
 		goto skip_write;
 
 	/* if locked failed, cp will flush dirty pages instead */
@@ -450,7 +457,7 @@ static int f2fs_set_meta_page_dirty(struct page *page)
 	if (!PageDirty(page)) {
 		__set_page_dirty_nobuffers(page);
 		inc_page_count(F2FS_P_SB(page), F2FS_DIRTY_META);
-		set_page_private_reference(page);
+		f2fs_set_page_private(page, 0);
 		f2fs_trace_pid(page);
 		return 1;
 	}
@@ -652,31 +659,12 @@ static int recover_orphan_inode(struct f2fs_sb_info *sbi, nid_t ino)
 		goto err_out;
 	}
 
-#ifdef CONFIG_F2FS_FS_DEDUP
-	if (is_inode_flag_set(inode, FI_REVOKE_DEDUP)) {
-		f2fs_notice(sbi, "recover orphan: ino[%u] set revoke, flags[%lu]",
-				ino, F2FS_I(inode)->flags[0]);
-		f2fs_bug_on(sbi, is_inode_flag_set(inode, FI_DOING_DEDUP));
-		err = f2fs_truncate_dedup_inode(inode, FI_REVOKE_DEDUP);
-		iput(inode);
-		return err;
-	}
-
-	if (is_inode_flag_set(inode, FI_DOING_DEDUP)) {
-		f2fs_notice(sbi, "recover orphan: ino[%u] set doing dedup, flags[%lu]",
-				ino, F2FS_I(inode)->flags[0]);
-		err = f2fs_truncate_dedup_inode(inode, FI_DOING_DEDUP);
-		iput(inode);
-		return err;
-	}
-#endif
-
 	clear_nlink(inode);
 
 	/* truncate all the data during iput */
 	iput(inode);
 
-	err = f2fs_get_node_info(sbi, ino, &ni, false);
+	err = f2fs_get_node_info(sbi, ino, &ni);
 	if (err)
 		goto err_out;
 
@@ -1045,7 +1033,7 @@ void f2fs_update_dirty_page(struct inode *inode, struct page *page)
 	inode_inc_dirty_pages(inode);
 	spin_unlock(&sbi->inode_lock[type]);
 
-	set_page_private_reference(page);
+	f2fs_set_page_private(page, 0);
 	f2fs_trace_pid(page);
 }
 
@@ -1297,7 +1285,8 @@ void f2fs_wait_on_all_pages(struct f2fs_sb_info *sbi, int type)
 		if (!get_pages(sbi, type))
 			break;
 
-		if (unlikely(f2fs_cp_error(sbi)))
+		if (unlikely(f2fs_cp_error(sbi) &&
+			!is_sbi_flag_set(sbi, SBI_IS_CLOSE)))
 			break;
 
 		if (type == F2FS_DIRTY_META)

@@ -2254,15 +2254,6 @@ static size_t binder_get_object(struct binder_proc *proc,
 			return 0;
 	}
 
-	if (u) {
-		if (copy_from_user(object, u + offset, read_size))
-			return 0;
-	} else {
-		if (binder_alloc_copy_from_buffer(&proc->alloc, object, buffer,
-						offset, read_size))
-			return 0;
-	}
-
 	/* Ok, now see if we read a complete object. */
 	hdr = &object->hdr;
 	switch (hdr->type) {
@@ -2709,7 +2700,6 @@ static int binder_translate_binder(struct flat_binder_object *fp,
 		ret = -EINVAL;
 		goto done;
 	}
-
 	if (security_binder_transfer_binder(binder_get_cred(proc),
 					    binder_get_cred(target_proc))) {
 		ret = -EPERM;
@@ -2757,7 +2747,6 @@ static int binder_translate_handle(struct flat_binder_object *fp,
 				  proc->pid, thread->pid, fp->handle);
 		return -EINVAL;
 	}
-
 	if (security_binder_transfer_binder(binder_get_cred(proc),
 					    binder_get_cred(target_proc))) {
 		ret = -EPERM;
@@ -2847,7 +2836,6 @@ static int binder_translate_fd(u32 fd, binder_size_t fd_offset,
 		ret = -EBADF;
 		goto err_fget;
 	}
-
 	ret = security_binder_transfer_file(binder_get_cred(proc),
 					    binder_get_cred(target_proc), file);
 	if (ret < 0) {
@@ -3614,7 +3602,6 @@ static void binder_transaction(struct binder_proc *proc,
 		hans_check_binder(tr, proc, target_proc, true);
 #endif /*OPLUS_FEATURE_HANS_FREEZE*/
 		e->to_node = target_node->debug_id;
-
 		if (security_binder_transaction(binder_get_cred(proc),
 						binder_get_cred(target_proc)) < 0) {
 			return_error = BR_FAILED_REPLY;
@@ -5511,7 +5498,6 @@ static void binder_free_proc(struct binder_proc *proc)
 	if (proc->outstanding_txns)
 		pr_warn("%s: Unexpected outstanding_txns %d\n",
 			__func__, proc->outstanding_txns);
-
 	device = container_of(proc->context, struct binder_device, context);
 	if (refcount_dec_and_test(&device->ref)) {
 		kfree(proc->context->name);
@@ -5733,7 +5719,6 @@ static int binder_ioctl_set_ctx_mgr(struct file *filp,
 		ret = -EBUSY;
 		goto out;
 	}
-
 	ret = security_binder_set_context_mgr(binder_get_cred(proc));
 	if (ret < 0)
 		goto out;
@@ -7222,6 +7207,7 @@ err_init_binder_device_failed:
 
 err_alloc_device_names_failed:
 	debugfs_remove_recursive(binder_debugfs_dir_entry_root);
+	binder_alloc_shrinker_exit();
 
 	return ret;
 }

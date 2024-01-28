@@ -764,11 +764,11 @@ struct ext_css_set init_ext_css_set = {
 		.mg_preload_node        = LIST_HEAD_INIT(init_css_set.mg_preload_node),
 		.mg_node                = LIST_HEAD_INIT(init_css_set.mg_node),
 		/*
-		* The following field is re-initialized when this cset gets linked
-		* in cgroup_init().  However, let's initialize the field
-		* statically too so that the default cgroup can be accessed safely
-		* early during boot.
-		*/
+		 * The following field is re-initialized when this cset gets linked
+		 * in cgroup_init().  However, let's initialize the field
+		 * statically too so that the default cgroup can be accessed safely
+		 * early during boot.
+		 */
 		.dfl_cgrp               = &cgrp_dfl_root.cgrp,
 	},
 	.mg_src_preload_node	= LIST_HEAD_INIT(init_ext_css_set.mg_src_preload_node),
@@ -1744,7 +1744,7 @@ int rebind_subsystems(struct cgroup_root *dst_root, u16 ss_mask)
 {
 	struct cgroup *dcgrp = &dst_root->cgrp;
 	struct cgroup_subsys *ss;
-	int ssid, i, ret;
+	int ssid, ret;
 	u16 dfl_disable_ss_mask = 0;
 
 	lockdep_assert_held(&cgroup_mutex);
@@ -1788,7 +1788,8 @@ int rebind_subsystems(struct cgroup_root *dst_root, u16 ss_mask)
 		struct cgroup_root *src_root = ss->root;
 		struct cgroup *scgrp = &src_root->cgrp;
 		struct cgroup_subsys_state *css = cgroup_css(scgrp, ss);
-		struct css_set *cset;
+		struct css_set *cset, *cset_pos;
+		struct css_task_iter *it;
 
 		WARN_ON(!css || cgroup_css(dcgrp, ss));
 
@@ -1806,9 +1807,22 @@ int rebind_subsystems(struct cgroup_root *dst_root, u16 ss_mask)
 		css->cgroup = dcgrp;
 
 		spin_lock_irq(&css_set_lock);
-		hash_for_each(css_set_table, i, cset, hlist)
+		WARN_ON(!list_empty(&dcgrp->e_csets[ss->id]));
+		list_for_each_entry_safe(cset, cset_pos, &scgrp->e_csets[ss->id],
+					 e_cset_node[ss->id]) {
 			list_move_tail(&cset->e_cset_node[ss->id],
 				       &dcgrp->e_csets[ss->id]);
+			/*
+			 * all css_sets of scgrp together in same order to dcgrp,
+			 * patch in-flight iterators to preserve correct iteration.
+			 * since the iterator is always advanced right away and
+			 * finished when it->cset_pos meets it->cset_head, so only
+			 * update it->cset_head is enough here.
+			 */
+			list_for_each_entry(it, &cset->task_iters, iters_node)
+				if (it->cset_head == &scgrp->e_csets[ss->id])
+					it->cset_head = &dcgrp->e_csets[ss->id];
+		}
 		spin_unlock_irq(&css_set_lock);
 
 		/* default hierarchy doesn't enable controllers by default */
@@ -2701,7 +2715,7 @@ void cgroup_migrate_finish(struct cgroup_mgctx *mgctx)
 	spin_lock_irq(&css_set_lock);
 
 	list_for_each_entry_safe(cset, tmp_cset, &mgctx->preloaded_src_csets,
-	    mg_src_preload_node) {
+				 mg_src_preload_node) {
 		cset->cset.mg_src_cgrp = NULL;
 		cset->cset.mg_dst_cgrp = NULL;
 		cset->cset.mg_dst_cset = NULL;
@@ -2710,7 +2724,7 @@ void cgroup_migrate_finish(struct cgroup_mgctx *mgctx)
 	}
 
 	list_for_each_entry_safe(cset, tmp_cset, &mgctx->preloaded_dst_csets,
-	    mg_dst_preload_node) {
+				 mg_dst_preload_node) {
 		cset->cset.mg_src_cgrp = NULL;
 		cset->cset.mg_dst_cgrp = NULL;
 		cset->cset.mg_dst_cset = NULL;
@@ -2794,7 +2808,7 @@ int cgroup_migrate_prepare_dst(struct cgroup_mgctx *mgctx)
 
 	/* look up the dst cset for each src cset and link it to src */
 	list_for_each_entry_safe(ext_src_set, tmp_cset, &mgctx->preloaded_src_csets,
-	    mg_src_preload_node) {
+				 mg_src_preload_node) {
 		struct css_set *src_cset = &ext_src_set->cset;
 		struct css_set *dst_cset;
 		struct ext_css_set *ext_dst_cset;
@@ -3044,8 +3058,8 @@ static int cgroup_update_dfl_csses(struct cgroup *cgrp)
 	DEFINE_CGROUP_MGCTX(mgctx);
 	struct cgroup_subsys_state *d_css;
 	struct cgroup *dsct;
-	struct ext_css_set *ext_src_set;
 	bool has_tasks;
+	struct ext_css_set *ext_src_set;
 	int ret;
 
 	lockdep_assert_held(&cgroup_mutex);
@@ -3076,7 +3090,7 @@ static int cgroup_update_dfl_csses(struct cgroup *cgrp)
 
 	spin_lock_irq(&css_set_lock);
 	list_for_each_entry(ext_src_set, &mgctx.preloaded_src_csets,
-	    mg_src_preload_node) {
+			    mg_src_preload_node) {
 		struct task_struct *task, *ntask;
 
 		/* all tasks in src_csets need to be migrated */
