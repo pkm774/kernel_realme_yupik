@@ -168,14 +168,45 @@ create_dtb_img() {
     DIST_DIR=out/gen_dtb
     rm -rf ${DIST_DIR}
     mkdir -p ${DIST_DIR}
-    cp out/arch/arm64/boot/dts/vendor/oplus/lunaa/*.dtb ${DIST_DIR}
-    cp out/arch/arm64/boot/dts/vendor/qcom/*.dtb ${DIST_DIR}
+
+    # Base directories
+    BASE_DIRS=(
+        oplus
+        qcom
+    )
+
+    # Copy all *.dtb files from each directory to gen_dtb
+    for BASE_DIR in "${BASE_DIRS[@]}"; do
+        DIR_PATH="out/arch/arm64/boot/dts/vendor/${BASE_DIR}"
+        if [ -d "$DIR_PATH" ]; then
+            DIRS=$(find "$DIR_PATH" -type d)
+            for DIR in $DIRS; do
+                DTB_FILES=$(find "${DIR}" -name "*.dtb")
+                for FILE in $DTB_FILES; do
+                    BASENAME=$(basename $FILE)
+                    DIRNAME=$(basename $DIR)
+                    if [ "$BASE_DIR" == "oplus" ]; then
+                        cp "$FILE" "${DIST_DIR}/${BASE_DIR}_${DIRNAME}_${BASENAME}"
+                    else
+                        cp "$FILE" "${DIST_DIR}/${BASE_DIR}_${BASENAME}"
+                    fi
+                done
+            done
+        else
+            echo "Directory $DIR_PATH does not exist !"
+        fi
+    done
+
+    # Generate dtb.img
     DTB_FILE_LIST=$(find ${DIST_DIR} -name "*.dtb" | sort)
     cat $DTB_FILE_LIST > out/arch/arm64/boot/dtb.img
 }
 
+
+
 # Check if 'arch/arm64/boot/Image' exists
 if [ -f "out/arch/arm64/boot/Image" ]; then
+    echo ''
     echo "Kernel build successful! "
     echo "Proceeding with copying modules."
     copy_files
